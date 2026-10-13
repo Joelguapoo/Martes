@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MARTES — Personal AI Assistant</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="/static/styles.css?v=martes-20261013-compact-compound">
+</head>
+<body>
+  <main class="app-shell" data-state="offline">
+    <section class="login-screen" id="loginScreen" hidden>
+      <div class="login-card">
+        <div class="orb compact" aria-hidden="true">
+          <svg viewBox="0 0 240 240">
+            <circle class="orb-ring one" cx="120" cy="120" r="92"></circle>
+            <circle class="orb-ring two" cx="120" cy="120" r="64"></circle>
+            <circle class="orb-ring three" cx="120" cy="120" r="34"></circle>
+            <circle class="orb-dot" cx="120" cy="120" r="8"></circle>
+          </svg>
+        </div>
+        <p class="eyebrow">MARTES</p>
+        <h1>Acceso privado</h1>
+        <form id="loginForm" class="settings-form">
+          <label>Correo<input id="loginEmail" type="email" autocomplete="username" required></label>
+          <label>Contraseña<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+          <button type="submit" class="ghost-action">Entrar</button>
+        </form>
+        <p class="muted" id="loginHelp">Comprobando estado de acceso...</p>
+      </div>
+    </section>
+    <aside class="conversation-sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <span>MARTES</span>
+        <i class="fa-solid fa-bars-staggered" aria-hidden="true"></i>
+      </div>
+      <button class="new-chat-button" id="newChatButton" type="button"><i class="fa-solid fa-plus"></i><span>Nuevo chat</span></button>
+      <div class="conversation-list" id="conversationList" aria-label="Conversaciones"></div>
+    </aside>
+    <button class="command-button" id="commandButton" type="button" title="Abrir comandos"><i class="fa-solid fa-command"></i><span>⌘</span></button>
+    <section class="welcome" id="welcome">
+      <div class="orb" aria-hidden="true">
+        <svg viewBox="0 0 240 240">
+          <circle class="orb-ring one" cx="120" cy="120" r="92"></circle>
+          <circle class="orb-ring two" cx="120" cy="120" r="64"></circle>
+          <circle class="orb-ring three" cx="120" cy="120" r="34"></circle>
+          <path class="orb-marks" d="M120 18v34M120 188v34M18 120h34M188 120h34M55 55l24 24M161 161l24 24M185 55l-24 24M79 161l-24 24"></path>
+          <circle class="orb-dot" cx="120" cy="120" r="8"></circle>
+        </svg>
+      </div>
+      <p class="eyebrow">MARTES</p>
+      <h1>Personal AI Assistant</h1>
+      <p class="subtitle" id="welcomeText">A sus órdenes, señor. ¿Qué necesita?</p>
+      <p class="model-line" id="modelLine">INTERFACE ONLINE</p>
+      <button class="briefing-link subtle" id="briefingButton" type="button"><i class="fa-solid fa-satellite-dish"></i><span>Funciones</span></button>
+    </section>
+    <section class="chat-view" id="chatView" aria-label="Conversacion">
+      <div id="chat" class="chat-log" aria-live="polite"></div>
+    </section>
+    <form id="chatForm" class="composer" aria-label="Enviar mensaje">
+      <button type="button" class="round-button" id="quickAddButton" title="Acciones"><i class="fa-solid fa-plus"></i><span>+</span></button>
+      <textarea id="messageInput" rows="1" placeholder="Pregúnteme cualquier cosa, señor..."></textarea>
+      <span class="provider-pill" id="providerPill">Modelo N/D</span>
+      <button type="button" class="round-button" id="speakButton" title="Leer respuesta"><i class="fa-solid fa-volume-high"></i><span>◉</span></button>
+      <button type="button" class="round-button" id="voiceButton" title="Microfono"><i class="fa-solid fa-microphone"></i><span>♩</span></button>
+      <button type="submit" class="round-button send" id="sendButton" title="Enviar" disabled><i class="fa-solid fa-arrow-up"></i><span>↑</span></button>
+    </form>
+    <dialog id="modal" class="modal">
+      <div class="modal-shell">
+        <header>
+          <div>
+            <p class="eyebrow" id="modalEyebrow">MARTES</p>
+            <h2 id="modalTitle">Panel</h2>
+          </div>
+          <button id="modalClose" type="button">Cerrar</button>
+        </header>
+        <div id="modalBody" class="modal-body"></div>
+      </div>
+    </dialog>
+    <div id="toast" class="toast" hidden></div>
+  </main>
+  <script src="/static/app.js?v=martes-20261013-hover-tools"></script>
+</body>
+</html>
