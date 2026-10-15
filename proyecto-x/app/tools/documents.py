@@ -98,6 +98,15 @@ def register_document_tools(registry: ToolRegistry, agent: DocumentAgent) -> Non
             RiskLevel.QUERY,
             agent.read_text_document,
             input_schema={"path": "ruta relativa .txt/.md"},
+            required_params=["path"],
+            purpose="Leer documentos de texto o Markdown autorizados.",
+            appropriate_when=[
+                "El usuario pide abrir, revisar o extraer contenido de un documento.",
+            ],
+            natural_examples=["Lee el documento plan.md", "Abre mis notas y dime qué dicen"],
+            possible_errors=["Documento inexistente", "Formato no soportado"],
+            verification="Devolver ruta y contenido con conteo de caracteres.",
+            semantic_tags=["documento", "leer", "markdown", "txt"],
             **common,
         )
     )
@@ -108,6 +117,13 @@ def register_document_tools(registry: ToolRegistry, agent: DocumentAgent) -> Non
             RiskLevel.QUERY,
             agent.read_json,
             input_schema={"path": "ruta relativa .json"},
+            required_params=["path"],
+            purpose="Leer y validar un archivo JSON autorizado.",
+            appropriate_when=["El usuario pide revisar o validar un JSON."],
+            natural_examples=["Valida config.json", "Lee este JSON"],
+            possible_errors=["JSON invalido", "Documento inexistente"],
+            verification="Devolver datos parseados y tipo raiz.",
+            semantic_tags=["json", "documento", "leer"],
             **common,
         )
     )
@@ -118,6 +134,13 @@ def register_document_tools(registry: ToolRegistry, agent: DocumentAgent) -> Non
             RiskLevel.QUERY,
             agent.read_csv,
             input_schema={"path": "ruta relativa .csv"},
+            required_params=["path"],
+            purpose="Leer una muestra de CSV autorizado.",
+            appropriate_when=["El usuario pide inspeccionar una tabla CSV."],
+            natural_examples=["Revisa datos.csv", "Muéstrame una muestra del CSV"],
+            possible_errors=["Documento inexistente", "CSV vacio"],
+            verification="Devolver encabezados y filas de muestra.",
+            semantic_tags=["csv", "tabla", "documento"],
             **common,
         )
     )
@@ -128,6 +151,15 @@ def register_document_tools(registry: ToolRegistry, agent: DocumentAgent) -> Non
             RiskLevel.QUERY,
             agent.summarize,
             input_schema={"path": "ruta relativa"},
+            required_params=["path"],
+            purpose="Resumir de forma local documentos TXT, Markdown, JSON o CSV.",
+            appropriate_when=[
+                "El usuario pide resumen, análisis breve o vista rápida de un documento.",
+            ],
+            natural_examples=["Resume plan.md", "Analiza este archivo y dame lo importante"],
+            possible_errors=["Formato no soportado", "Documento demasiado grande"],
+            verification="Devolver ruta, conteos y resumen.",
+            semantic_tags=["resumen", "analizar", "documento"],
             **common,
         )
     )
@@ -138,6 +170,13 @@ def register_document_tools(registry: ToolRegistry, agent: DocumentAgent) -> Non
             RiskLevel.LOCAL_REVERSIBLE,
             agent.create_markdown,
             input_schema={"path": "ruta relativa .md", "title": "titulo", "body": "contenido"},
+            required_params=["path", "title", "body"],
+            purpose="Crear un informe Markdown sin sobrescribir.",
+            appropriate_when=["El usuario pide guardar un informe o documento Markdown."],
+            natural_examples=["Crea un informe markdown", "Guarda el resumen en un .md"],
+            possible_errors=["Documento ya existe", "Extension invalida"],
+            verification="Confirmar documento creado, ruta y bytes.",
+            semantic_tags=["informe", "markdown", "crear"],
             **common,
         )
     )

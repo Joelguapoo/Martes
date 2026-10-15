@@ -63,3 +63,58 @@ async def test_groq_completion_maps_rate_limits():
         assert exc.code == "rate_limited"
     else:
         raise AssertionError("Expected ProviderError")
+
+
+async def test_groq_tool_calling_uses_openai_compatible_payload():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "weather_current",
+                                        "arguments": "{\"city\":\"Bogotá\"}",
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+        )
+
+    provider = GroqProvider(
+        api_key="secret",
+        model="openai/gpt-oss-120b",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await provider.complete_with_tools(
+        [{"role": "user", "content": "clima"}],
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": "weather_current",
+                    "description": "Consultar clima",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ],
+    )
+
+    assert captured["body"]["tools"][0]["function"]["name"] == "weather_current"
+    assert captured["body"]["tool_choice"] == "auto"
+    assert result["finish_reason"] == "tool_calls"
+    assert result["message"]["tool_calls"][0]["function"]["name"] == "weather_current"

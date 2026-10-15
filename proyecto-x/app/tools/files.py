@@ -157,6 +157,20 @@ def register_file_tools(registry: ToolRegistry, agent: FileAgent) -> None:
             RiskLevel.LOCAL_REVERSIBLE,
             agent.create_directory,
             input_schema={"path": "ruta relativa"},
+            required_params=["path"],
+            purpose="Crear un espacio de trabajo, carpeta o directorio para organizar archivos.",
+            appropriate_when=[
+                "El usuario pide preparar un lugar donde guardar material.",
+                "El usuario solicita una carpeta/directorio con lenguaje informal.",
+            ],
+            natural_examples=[
+                "Hazme una carpeta para el proyecto web",
+                "Prepárame un espacio donde guardar esto",
+                "Crea un directorio llamado Ideas",
+            ],
+            possible_errors=["Ruta vacia", "Ruta fuera del espacio autorizado"],
+            verification="Confirmar que la ruta existe y es una carpeta.",
+            semantic_tags=["archivo", "carpeta", "directorio", "organizar"],
             **common,
         )
     )
@@ -167,6 +181,19 @@ def register_file_tools(registry: ToolRegistry, agent: FileAgent) -> None:
             RiskLevel.QUERY,
             agent.list_directory,
             input_schema={"path": "ruta relativa opcional"},
+            optional_params=["path"],
+            purpose="Revisar el contenido de una carpeta autorizada.",
+            appropriate_when=[
+                "El usuario pide echar un vistazo, analizar o listar una carpeta.",
+            ],
+            natural_examples=[
+                "Échale un vistazo a esa carpeta",
+                "Analiza los archivos del proyecto",
+                "Muéstrame qué hay ahí",
+            ],
+            possible_errors=["La carpeta no existe"],
+            verification="Devolver ruta verificada e items encontrados.",
+            semantic_tags=["listar", "analizar", "carpeta", "archivos"],
             **common,
         )
     )
@@ -177,6 +204,21 @@ def register_file_tools(registry: ToolRegistry, agent: FileAgent) -> None:
             RiskLevel.LOCAL_REVERSIBLE,
             agent.create_text_file,
             input_schema={"path": "ruta relativa", "content": "texto", "overwrite": False},
+            required_params=["path", "content"],
+            optional_params=["overwrite"],
+            purpose="Crear un TXT o documento de texto con contenido indicado por el usuario.",
+            appropriate_when=[
+                "El usuario pide guardar notas, texto o un archivo .txt.",
+                "Una tarea previa creó una carpeta y el usuario quiere escribir dentro.",
+            ],
+            natural_examples=[
+                "Crea un archivo txt que diga Hola",
+                "Guarda estas notas en esa carpeta",
+                "Hazme un archivo de texto dentro del proyecto",
+            ],
+            possible_errors=["El archivo ya existe", "Ruta fuera del espacio autorizado"],
+            verification="Confirmar que el archivo existe, ruta y bytes escritos.",
+            semantic_tags=["archivo", "txt", "texto", "guardar"],
             **common,
         )
     )
@@ -187,6 +229,13 @@ def register_file_tools(registry: ToolRegistry, agent: FileAgent) -> None:
             RiskLevel.QUERY,
             agent.read_text_file,
             input_schema={"path": "ruta relativa"},
+            required_params=["path"],
+            purpose="Leer un archivo de texto pequeno en el espacio autorizado.",
+            appropriate_when=["El usuario pide abrir, leer o revisar un TXT/MD pequeno."],
+            natural_examples=["Lee este archivo", "Revisa notas.txt", "Qué dice ese documento"],
+            possible_errors=["Archivo inexistente", "Archivo demasiado grande"],
+            verification="Devolver contenido y ruta verificada.",
+            semantic_tags=["leer", "archivo", "texto"],
             **common,
         )
     )
@@ -197,6 +246,13 @@ def register_file_tools(registry: ToolRegistry, agent: FileAgent) -> None:
             RiskLevel.LOCAL_REVERSIBLE,
             agent.append_text_file,
             input_schema={"path": "ruta relativa", "content": "texto"},
+            required_params=["path", "content"],
+            purpose="Anadir texto a un archivo existente.",
+            appropriate_when=["El usuario pide agregar contenido a un archivo ya creado."],
+            natural_examples=["Añade esta línea al archivo", "Pon esto al final de notas.txt"],
+            possible_errors=["El archivo no existe"],
+            verification="Confirmar archivo actualizado y bytes finales.",
+            semantic_tags=["anadir", "archivo", "texto"],
             **common,
         )
     )
@@ -207,6 +263,13 @@ def register_file_tools(registry: ToolRegistry, agent: FileAgent) -> None:
             RiskLevel.CONSEQUENCE,
             agent.rename,
             input_schema={"source": "ruta relativa", "target": "ruta relativa"},
+            required_params=["source", "target"],
+            purpose="Renombrar o mover un elemento sin sobrescribir.",
+            appropriate_when=["El usuario pide cambiar nombre o mover archivos/carpetas."],
+            natural_examples=["Renombra esta carpeta", "Mueve el archivo a informes"],
+            possible_errors=["Origen no existe", "Destino ya existe", "Requiere autorizacion"],
+            verification="Confirmar ruta origen y destino verificados.",
+            semantic_tags=["renombrar", "mover", "archivo", "carpeta"],
             **common,
         )
     )
@@ -217,6 +280,14 @@ def register_file_tools(registry: ToolRegistry, agent: FileAgent) -> None:
             RiskLevel.QUERY,
             agent.search,
             input_schema={"path": "ruta relativa opcional", "query": "texto"},
+            required_params=["query"],
+            optional_params=["path"],
+            purpose="Buscar archivos o carpetas por nombre dentro del workspace.",
+            appropriate_when=["El usuario recuerda parte del nombre y quiere localizarlo."],
+            natural_examples=["Busca el archivo presupuesto", "Encuentra documentos con factura"],
+            possible_errors=["Busqueda demasiado corta", "Carpeta no existe"],
+            verification="Devolver lista de coincidencias.",
+            semantic_tags=["buscar", "encontrar", "archivo"],
             **common,
         )
     )
@@ -227,6 +298,16 @@ def register_file_tools(registry: ToolRegistry, agent: FileAgent) -> None:
             RiskLevel.LOCAL_REVERSIBLE,
             agent.scaffold_project,
             input_schema={"name": "nombre de carpeta/proyecto"},
+            required_params=["name"],
+            purpose="Crear una estructura inicial de proyecto con carpetas y archivos base.",
+            appropriate_when=["El usuario pide montar una estructura o base de proyecto."],
+            natural_examples=[
+                "Móntame la estructura del proyecto",
+                "Arma una base para mi app",
+            ],
+            possible_errors=["El proyecto ya existe"],
+            verification="Confirmar carpeta principal e items creados.",
+            semantic_tags=["estructura", "proyecto", "scaffold"],
             **common,
         )
     )

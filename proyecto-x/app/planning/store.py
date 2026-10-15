@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -349,6 +350,8 @@ class PlanningStore:
         description: str = "",
         priority: str = "normal",
         tasks: list[str] | None = None,
+        conversation_id: str | None = None,
+        plan_id: str | None = None,
     ) -> dict[str, Any]:
         now = datetime.now(UTC).isoformat()
         project_id = str(uuid4())
@@ -384,6 +387,8 @@ class PlanningStore:
                 )
         self.record_activity(
             user_id=user_id,
+            conversation_id=conversation_id,
+            plan_id=plan_id,
             project_id=project_id,
             kind="project",
             title="Proyecto creado",
@@ -391,6 +396,18 @@ class PlanningStore:
             detail=name,
             payload={"tasks": tasks},
         )
+        if tasks:
+            self.record_activity(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                plan_id=plan_id,
+                project_id=project_id,
+                kind="tasks_created",
+                title=f"{len(tasks)} tareas creadas",
+                status="COMPLETED",
+                detail=name,
+                payload={"task_count": len(tasks), "tasks": tasks},
+            )
         return self.get_project(project_id, user_id=user_id) or {}
 
     def get_project(self, project_id: str, *, user_id: str) -> dict[str, Any] | None:
@@ -408,6 +425,37 @@ class PlanningStore:
         item = dict(project)
         item["tasks"] = [dict(row) for row in tasks]
         return item
+
+    def find_project_by_name(self, *, user_id: str, query: str) -> dict[str, Any] | None:
+        normalized = " ".join(query.strip().lower().split())
+        if not normalized:
+            return None
+        with self._connect() as conn:
+            exact = conn.execute(
+                """
+                SELECT id FROM projects
+                WHERE user_id = ? AND lower(name) = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (user_id, normalized),
+            ).fetchone()
+            if exact:
+                project_id = str(exact["id"])
+            else:
+                like = conn.execute(
+                    """
+                    SELECT id FROM projects
+                    WHERE user_id = ? AND lower(name) LIKE ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id, f"%{normalized}%"),
+                ).fetchone()
+                if not like:
+                    return None
+                project_id = str(like["id"])
+        return self.get_project(project_id, user_id=user_id)
 
     def list_projects(self, *, user_id: str, limit: int = 20) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -436,6 +484,141 @@ class PlanningStore:
                 (user_id, limit),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_project_tasks(self, project_id: str, *, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM tasks
+                WHERE project_id = ? AND user_id = ?
+                ORDER BY created_at ASC
+                """,
+                (project_id, user_id),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_task(self, task_id: str, *, user_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT tasks.*, projects.name AS project_name
+                FROM tasks
+                LEFT JOIN projects ON projects.id = tasks.project_id
+                WHERE tasks.id = ? AND tasks.user_id = ?
+                """,
+                (task_id, user_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def find_projects_by_name(self, *, user_id: str, query: str) -> list[dict[str, Any]]:
+        normalized = _normalized_name(query)
+        if not normalized:
+            return []
+        projects = self.list_projects(user_id=user_id, limit=100)
+        return [
+            project for project in projects if _normalized_name(str(project["name"])) == normalized
+        ]
+
+    def find_tasks_by_name(
+        self,
+        *,
+        user_id: str,
+        project_id: str,
+        query: str,
+    ) -> list[dict[str, Any]]:
+        normalized = _normalized_name(query)
+        if not normalized:
+            return []
+        return [
+            task
+            for task in self.list_project_tasks(project_id, user_id=user_id)
+            if _normalized_name(str(task["title"])) == normalized
+        ]
+
+    def create_task(
+        self,
+        *,
+        user_id: str,
+        project_id: str,
+        title: str,
+        description: str = "",
+        priority: str = "normal",
+        due_at: str | None = None,
+    ) -> dict[str, Any] | None:
+        if self.get_project(project_id, user_id=user_id) is None:
+            return None
+        now = datetime.now(UTC).isoformat()
+        task_id = str(uuid4())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO tasks
+                (id, user_id, project_id, title, description, status, priority,
+                 due_at, completed_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                """,
+                (
+                    task_id,
+                    user_id,
+                    project_id,
+                    title,
+                    description,
+                    TaskStatus.TODO.value,
+                    priority,
+                    due_at,
+                    now,
+                    now,
+                ),
+            )
+        return self.get_task(task_id, user_id=user_id)
+
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        user_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        priority: str | None = None,
+        due_at: str | None = None,
+        status: TaskStatus | None = None,
+    ) -> dict[str, Any] | None:
+        current = self.get_task(task_id, user_id=user_id)
+        if current is None:
+            return None
+        values = {
+            "title": title if title is not None else current["title"],
+            "description": description if description is not None else current["description"],
+            "priority": priority if priority is not None else current["priority"],
+            "due_at": due_at if due_at is not None else current["due_at"],
+            "status": (status.value if status is not None else current["status"]),
+        }
+        completed_at = current["completed_at"]
+        if status == TaskStatus.DONE:
+            completed_at = datetime.now(UTC).isoformat()
+        elif status is not None and current["status"] == TaskStatus.DONE.value:
+            completed_at = None
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE tasks
+                SET title = ?, description = ?, priority = ?, due_at = ?, status = ?,
+                    completed_at = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (
+                    values["title"],
+                    values["description"],
+                    values["priority"],
+                    values["due_at"],
+                    values["status"],
+                    completed_at,
+                    datetime.now(UTC).isoformat(),
+                    task_id,
+                    user_id,
+                ),
+            )
+        return self.get_task(task_id, user_id=user_id)
 
     def record_activity(
         self,
@@ -517,3 +700,9 @@ class PlanningStore:
         if isinstance(step, str):
             return step
         return str(step.get("title") or step.get("action", {}).get("tool") or "Paso").strip()
+
+
+def _normalized_name(value: str) -> str:
+    decomposed = unicodedata.normalize("NFD", value.lower())
+    without_accents = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    return " ".join("".join(char if char.isalnum() else " " for char in without_accents).split())

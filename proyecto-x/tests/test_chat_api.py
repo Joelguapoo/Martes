@@ -73,6 +73,24 @@ def test_chat_route_returns_notice_when_model_offline(tmp_path):
     assert BUILD_REPORT not in payload["notice"]
 
 
+def test_stream_route_always_emits_terminal_event_when_model_offline(tmp_path):
+    app = create_app(
+        model_provider=OfflineProvider(),
+        database_path=tmp_path / "app.db",
+        enable_web=False,
+        auth_required=False,
+    )
+    client = TestClient(app)
+
+    response = client.post("/api/chat/stream", json={"message": "hola"})
+
+    assert response.status_code == 200
+    events = [line for line in response.text.splitlines() if line.strip()]
+    assert any('"event": "notice"' in line for line in events)
+    assert any('"event": "done"' in line for line in events)
+    assert all('"request_id"' in line for line in events)
+
+
 def test_history_persists_user_and_notice_without_fake_assistant(tmp_path):
     db = tmp_path / "app.db"
     app = create_app(

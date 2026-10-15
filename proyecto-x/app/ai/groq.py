@@ -30,6 +30,10 @@ class GroqProvider(LocalModelProvider):
     def name(self) -> str:
         return "groq"
 
+    @property
+    def supports_native_tools(self) -> bool:
+        return True
+
     async def status(self) -> ModelStatus:
         if not self.api_key:
             return ModelStatus(
@@ -92,6 +96,44 @@ class GroqProvider(LocalModelProvider):
                 code="invalid_response",
             ) from exc
         return str(content).strip()
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        tool_choice: str = "auto",
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        if not self.api_key:
+            raise ProviderError(
+                "Falta GROQ_API_KEY. "
+                f"Crea una clave en {GROQ_KEYS_URL} y guardala en Configuracion.",
+                code="missing_api_key",
+            )
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.4,
+            "stream": False,
+            "tools": tools,
+            "tool_choice": tool_choice,
+        }
+        data = await self._request("POST", "/chat/completions", json=payload, timeout=timeout or 60)
+        try:
+            message = data["choices"][0]["message"]
+            finish_reason = data["choices"][0].get("finish_reason")
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ProviderError(
+                "Groq respondio con un formato inesperado para tool calling.",
+                code="invalid_tool_response",
+            ) from exc
+        if not isinstance(message, dict):
+            raise ProviderError(
+                "Groq no devolvio un mensaje estructurado.",
+                code="invalid_tool_response",
+            )
+        return {"message": message, "finish_reason": finish_reason, "raw": data}
 
     async def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
         if not self.api_key:

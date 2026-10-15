@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     enable_tone_analysis: bool = Field(True, alias="PROJECT_X_ENABLE_TONE_ANALYSIS")
     enable_voice: bool = Field(False, alias="PROJECT_X_ENABLE_VOICE")
     auto_learning: bool = Field(False, alias="PROJECT_X_AUTO_LEARNING")
+    native_tool_calling_enabled: bool = Field(True, alias="MARTES_NATIVE_TOOL_CALLING_ENABLED")
+    native_tool_calling_max_iterations: int = Field(
+        4,
+        alias="MARTES_NATIVE_TOOL_CALLING_MAX_ITERATIONS",
+    )
     workspace_root: Path = Field(Path("./workspace"), alias="MARTES_WORKSPACE_ROOT")
     weather_cache_minutes: int = Field(45, alias="MARTES_WEATHER_CACHE_MINUTES")
     request_timeout_seconds: float = 20.0

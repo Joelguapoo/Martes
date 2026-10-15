@@ -73,6 +73,28 @@ class ProviderManager(LocalModelProvider):
             raise RuntimeError(selection.active_status.message)
         return await selection.active.complete(messages, timeout=timeout)
 
+    @property
+    def supports_native_tools(self) -> bool:
+        return True
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        tool_choice: str = "auto",
+        timeout: float | None = None,
+    ) -> dict:
+        selection = await self.inspect()
+        if selection.active is None:
+            raise RuntimeError(selection.active_status.message)
+        return await selection.active.complete_with_tools(
+            messages,
+            tools,
+            tool_choice=tool_choice,
+            timeout=timeout,
+        )
+
     async def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
         selection = await self.inspect()
         if selection.active is None:

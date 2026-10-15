@@ -328,33 +328,66 @@ async function sendMessage() {
 }
 
 async function apiStream(path, payload, onEvent) {
-  const response = await fetch(path, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken || "" },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 45000);
+  let response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken || "" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    window.clearTimeout(timeout);
+    if (error.name === "AbortError") throw new Error("La solicitud tardó demasiado y fue detenida.");
+    throw error;
+  }
   if (!response.ok) {
+    window.clearTimeout(timeout);
     const data = await response.json().catch(() => ({}));
     throw new Error(data.detail || `HTTP ${response.status}`);
+  }
+  if (!response.body) {
+    window.clearTimeout(timeout);
+    throw new Error("El servidor no abrió el canal de respuesta.");
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let hadToken = false;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop();
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line);
-      if (event.event === "token") hadToken = true;
-      onEvent(event);
+  let finished = false;
+  let failed = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch (error) {
+          throw new Error("El servidor envió una respuesta incompleta.");
+        }
+        if (event.event === "token") hadToken = true;
+        if (event.event === "done") finished = true;
+        if (event.event === "error") failed = true;
+        onEvent(event);
+      }
     }
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("La solicitud tardó demasiado y fue detenida.");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
+  if (buffer.trim()) throw new Error("El servidor cortó la respuesta antes de terminar.");
+  if (!finished && !failed) throw new Error("La respuesta se interrumpió antes de finalizar.");
   return { hadToken };
 }
 

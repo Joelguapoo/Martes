@@ -25,7 +25,7 @@ class PlanExecutor:
         *,
         planning: PlanningStore,
         tools: ToolRegistry,
-        max_steps_per_run: int = 8,
+        max_steps_per_run: int = 12,
     ) -> None:
         self.planning = planning
         self.tools = tools
@@ -168,6 +168,8 @@ class PlanExecutor:
         payload = dict(action.get("payload") or {})
         if not tool_name:
             return self._fail_step(plan, step, user_id=user_id, error="Paso sin herramienta.")
+        if tool_name.startswith("internal."):
+            return self._run_internal_step(plan, step, user_id=user_id, payload=payload)
         if tool_name not in {tool.name for tool in self.tools.list()}:
             return self._fail_step(
                 plan,
@@ -189,7 +191,27 @@ class PlanExecutor:
         )
         try:
             payload = self._resolve_payload(tool_name, payload, plan)
+            if tool_name.startswith(("tasks.", "projects.")):
+                payload["user_id"] = user_id
+            if tool_name.startswith("tasks.") and plan.get("conversation_id"):
+                payload["conversation_id"] = plan["conversation_id"]
+            if tool_name.startswith("tasks."):
+                payload["plan_id"] = plan["id"]
             result = await self.tools.run(tool_name, payload, authorized=authorized)
+            if tool_name == "research.web" and payload.get("min_sources"):
+                minimum = int(payload["min_sources"])
+                sources = result.get("sources") if isinstance(result, dict) else []
+                if len(sources or []) < minimum:
+                    return self._fail_step(
+                        plan,
+                        step,
+                        user_id=user_id,
+                        error=(
+                            f"La investigacion recupero {len(sources or [])} fuente(s); "
+                            f"se requerian {minimum}."
+                        ),
+                        result={"raw": result},
+                    )
             verified = self._verify_result(tool_name, result)
             if not verified:
                 return self._fail_step(
@@ -200,6 +222,8 @@ class PlanExecutor:
                     result={"raw": result},
                 )
         except (FileToolError, PermissionError, ValueError, KeyError) as exc:
+            return self._fail_step(plan, step, user_id=user_id, error=str(exc))
+        except Exception as exc:
             return self._fail_step(plan, step, user_id=user_id, error=str(exc))
 
         saved_result = {"tool": tool_name, "payload": payload, "result": result, "verified": True}
@@ -243,6 +267,23 @@ class PlanExecutor:
             answer = research.get("answer") or research.get("summary")
             if answer:
                 lines.extend([str(answer), ""])
+            comparison = self._comparison_result(plan)
+            if comparison:
+                lines.append("## Comparación")
+                for item in comparison:
+                    title = item.get("title") or "Fuente"
+                    recommendation = item.get("recommendation") or "Revisar según el objetivo."
+                    lines.append(f"- {title}: {recommendation}")
+                lines.append("")
+            lines.extend(
+                [
+                    "## Verificación",
+                    "Las fuentes listadas provienen del resultado actual de research.web. "
+                    "Las recomendaciones son orientación generada a partir de esas fuentes, "
+                    "no hechos independientes.",
+                    "",
+                ]
+            )
             lines.append("## Fuentes")
             if not sources:
                 lines.append("- No se recuperaron fuentes verificables.")
@@ -275,7 +316,19 @@ class PlanExecutor:
         if tool_name == "weather.current":
             return "temperature" in result and bool(result.get("source"))
         if tool_name == "research.web":
-            return bool(result.get("sources")) or bool(result.get("answer"))
+            return bool(result.get("sources"))
+        if tool_name == "projects.list":
+            return "projects" in result
+        if tool_name == "tasks.list":
+            return "tasks" in result and bool(result.get("project"))
+        if tool_name == "tasks.find":
+            return "matches" in result and bool(result.get("project"))
+        if tool_name == "tasks.get":
+            return bool(result.get("task"))
+        if tool_name == "tasks.create":
+            return bool(result.get("created") and result.get("task"))
+        if tool_name in {"tasks.update", "tasks.update_status"}:
+            return bool(result.get("updated") and result.get("verified") and result.get("task"))
         if tool_name == "documents.read_text":
             return bool(result.get("path")) and "content" in result
         if tool_name == "documents.read_json":
@@ -322,6 +375,153 @@ class PlanExecutor:
             payload={"step_id": step["id"], "tool": step.get("action", {}).get("tool")},
         )
         return {"ok": False, "step": step, "error": error, "result": result or {}}
+
+    def _run_internal_step(
+        self,
+        plan: dict[str, Any],
+        step: dict[str, Any],
+        *,
+        user_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        tool_name = str(step.get("action", {}).get("tool") or "")
+        self.planning.update_step_status(step["id"], status=PlanStatus.RUNNING)
+        self.planning.record_activity(
+            user_id=user_id,
+            conversation_id=plan.get("conversation_id"),
+            plan_id=plan["id"],
+            kind="step_started",
+            title=step["title"],
+            status=PlanStatus.RUNNING.value,
+            detail=tool_name,
+            payload={"step_id": step["id"], "tool": tool_name},
+        )
+        try:
+            result = self._internal_result(tool_name, payload, plan, user_id=user_id)
+        except (ValueError, KeyError) as exc:
+            return self._fail_step(plan, step, user_id=user_id, error=str(exc))
+        saved_result = {"tool": tool_name, "payload": payload, "result": result, "verified": True}
+        self.planning.update_step_status(
+            step["id"],
+            status=PlanStatus.COMPLETED,
+            result=saved_result,
+        )
+        self.planning.record_activity(
+            user_id=user_id,
+            conversation_id=plan.get("conversation_id"),
+            plan_id=plan["id"],
+            kind="step_completed",
+            title=step["title"],
+            status=PlanStatus.COMPLETED.value,
+            detail=tool_name,
+            payload={"step_id": step["id"], "tool": tool_name, "verified": True},
+        )
+        return {"ok": True, "step": step, "result": saved_result}
+
+    def _internal_result(
+        self,
+        tool_name: str,
+        payload: dict[str, Any],
+        plan: dict[str, Any],
+        *,
+        user_id: str,
+    ) -> dict[str, Any]:
+        if tool_name == "internal.verify_project_tasks":
+            project_id = str(payload.get("project_id") or "")
+            if not project_id:
+                project_id = self._project_id_from_plan(plan)
+            expected = int(payload.get("expected_tasks") or 0)
+            project = self.planning.get_project(project_id, user_id=user_id)
+            if project is None:
+                raise ValueError("No pude localizar el proyecto creado para esta ejecución.")
+            task_count = len(project.get("tasks") or [])
+            if task_count != expected:
+                raise ValueError(
+                    f"El proyecto tiene {task_count} tarea(s); se esperaban {expected}."
+                )
+            return {
+                "project_id": project_id,
+                "project_name": project["name"],
+                "task_count": task_count,
+            }
+        if tool_name == "internal.create_study_project":
+            name = str(payload.get("name") or "").strip()
+            objective = str(payload.get("objective") or "").strip()
+            tasks = payload.get("tasks") or []
+            if not name or not objective or not isinstance(tasks, list):
+                raise ValueError("Datos insuficientes para crear el proyecto.")
+            project = self.planning.create_project(
+                user_id=user_id,
+                conversation_id=plan.get("conversation_id"),
+                plan_id=plan["id"],
+                name=name,
+                objective=objective,
+                description=str(payload.get("description") or ""),
+                tasks=[str(task) for task in tasks],
+            )
+            return {
+                "project_id": project["id"],
+                "project_name": project["name"],
+                "task_count": len(project.get("tasks") or []),
+            }
+        if tool_name == "internal.validate_research_sources":
+            minimum = int(payload.get("min_sources") or 0)
+            research = self._research_result(plan)
+            sources = research.get("sources") or []
+            if len(sources) < minimum:
+                raise ValueError(
+                    f"La investigación recuperó {len(sources)} fuente(s); se requerían {minimum}."
+                )
+            return {
+                "source_count": len(sources),
+                "sources": [
+                    {"title": source.get("title"), "url": source.get("url")} for source in sources
+                ],
+            }
+        if tool_name == "internal.compare_research_sources":
+            research = self._research_result(plan)
+            sources = research.get("sources") or []
+            if not sources:
+                raise ValueError("No hay fuentes verificadas para comparar.")
+            comparison = [
+                {
+                    "title": source.get("title") or "Fuente",
+                    "url": source.get("url"),
+                    "recommendation": "Revisar según nivel, práctica disponible y claridad.",
+                }
+                for source in sources
+            ]
+            return {"comparison": comparison}
+        if tool_name == "internal.prepare_final_summary":
+            return {"ready": True, "plan_id": plan["id"]}
+        raise ValueError(f"Herramienta interna no disponible: {tool_name}")
+
+    def _project_id_from_plan(self, plan: dict[str, Any]) -> str:
+        for step in plan["steps"]:
+            result = step.get("result") or {}
+            if result.get("tool") != "internal.create_study_project":
+                continue
+            project_id = (result.get("result") or {}).get("project_id")
+            if project_id:
+                return str(project_id)
+        raise ValueError("No hay proyecto registrado en esta ejecución.")
+
+    def _research_result(self, plan: dict[str, Any]) -> dict[str, Any]:
+        for step in plan["steps"]:
+            result = step.get("result") or {}
+            if result.get("tool") == "research.web":
+                return result.get("result") or {}
+        raise ValueError("No hay investigación verificada disponible en esta ejecución.")
+
+    def _comparison_result(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
+        for step in plan["steps"]:
+            result = step.get("result") or {}
+            if result.get("tool") != "internal.compare_research_sources":
+                continue
+            comparison = (result.get("result") or {}).get("comparison") or []
+            if isinstance(comparison, list):
+                return [item for item in comparison if isinstance(item, dict)]
+        return []
 
     def _summary(
         self,

@@ -15,9 +15,12 @@ El producto se presenta como **MARTES — Personal AI Assistant**. La carpeta y 
 - Memoria SQLite controlable por usuario, con busqueda, edicion, borrado, exportacion desde la UI y filtro contra credenciales.
 - Identidad central de MARTES en `app/core/identity.py`, aplicada al proveedor.
 - Registro real de capacidades en `app/tools/registry.py`, usado para explicar que puede hacer sin inventar accesos.
+- Capa `IntentResolver` en `app/core/intent.py`: interpreta solicitudes naturales, errores comunes, referencias recientes, riesgos y herramientas candidatas antes de ejecutar.
+- Diagnostico seguro de comprension por `/api/intent/diagnose` y `/api/intent/diagnostics`, sin exponer secretos ni razonamiento interno privado.
 - `MartesCore` coordina solicitudes operativas iniciales, planes persistentes, proyectos, tareas y actividad verificable.
 - Planes de ejecucion SQLite con estados `PENDING`, `PLANNING`, `WAITING_APPROVAL`, `RUNNING`, `VERIFYING`, `COMPLETED`, `FAILED` y `CANCELLED`.
 - Gestor basico de proyectos y tareas: MARTES puede crear un proyecto desde lenguaje natural, guardar tareas iniciales y recuperarlas desde `/api/activity`.
+- Gestión de tareas conectada al agente: MARTES consulta, busca, crea y actualiza tareas persistentes de SQLite mediante herramientas verificables, sin usar archivos TXT como sustituto.
 - Centro de actividad en la interfaz para ver eventos, planes y proyectos guardados por el backend.
 - Planificacion dinamica basada en herramientas registradas para solicitudes nuevas de documentos, busqueda de archivos y recordatorios.
 - Centro documental local para TXT, Markdown, JSON y CSV dentro del workspace autorizado.
@@ -59,9 +62,14 @@ GROQ_API_KEY=
 GROQ_MODEL=openai/gpt-oss-120b
 GROQ_BASE_URL=https://api.groq.com/openai/v1
 PROJECT_X_REMOTE_MEMORY_ENABLED=false
+MARTES_NATIVE_TOOL_CALLING_ENABLED=true
+MARTES_NATIVE_TOOL_CALLING_MAX_ITERATIONS=4
 ```
 
 La clave tambien puede guardarse desde Configuracion. No se expone en `/api/status`, historial ni interfaz. Si la memoria remota esta desactivada, Groq recibe solo el mensaje y el contexto reciente de la conversacion activa.
+
+MARTES 4.1 usa llamadas nativas a herramientas cuando el proveedor activo las soporta.
+Con Groq se envian definiciones `tools` compatibles con `/chat/completions`; el modelo puede devolver `tool_calls`, el backend valida el nombre y los argumentos, ejecuta la herramienta real en `ToolRegistry`, agrega el resultado como mensaje `tool` y repite el ciclo hasta obtener una respuesta final o alcanzar el limite configurado.
 
 ## Tavily
 
@@ -128,6 +136,13 @@ Flujos multipaso actuales:
 - Investigacion con informe: intenta `research.web`, crea carpeta `informes`, guarda un Markdown con fuentes recuperadas y verifica el archivo. Si la investigacion falla o no esta configurada, no inventa fuentes.
 - Estructura de software: usa `files.scaffold_project`, crea una nota de pruebas y verifica la estructura. No afirma que las pruebas pasaron porque aun no hay ejecutor de comandos autorizado.
 
+Correcciones 4.1.2:
+
+- Las consultas de tareas por nombre de proyecto, por ejemplo `qué tareas tiene mi proyecto Aprendizaje Web`, consultan SQLite directamente y funcionan aunque se hagan desde un chat nuevo.
+- Las investigaciones solo se verifican cuando `research.web` devuelve fuentes estructuradas. Un resumen sin URLs no se convierte en informe falso.
+- Las peticiones compuestas de investigacion conservan el objetivo real antes de separar instrucciones como comparar, guardar informe o crear tareas.
+- El streaming de `/api/chat/stream` emite siempre un evento terminal `done` o un error visible con `request_id`; el frontend corta solicitudes largas, limpia el estado `thinking` y muestra el fallo en el chat.
+
 Endpoints utiles:
 
 - `GET /api/activity`: actividad, planes, proyectos y tareas del usuario autenticado.
@@ -137,6 +152,77 @@ Endpoints utiles:
 - `GET /api/projects`: proyectos persistentes del usuario.
 
 Las acciones de mayor riesgo siguen pasando por el registro de herramientas y los niveles de permiso. Un plan guardado no autoriza por si solo una accion futura.
+
+## Gestión de tareas 4.1.3
+
+Las tareas y proyectos usan las tablas SQLite existentes `projects` y `tasks`. No hay una segunda lista basada en archivos. Las herramientas disponibles son:
+
+- `projects.list`: lista proyectos del usuario autenticado.
+- `tasks.list`: lista tareas de un proyecto identificado de forma inequívoca.
+- `tasks.find`: busca por título normalizado dentro de un proyecto, sin seleccionar una coincidencia ambigua.
+- `tasks.get`: vuelve a consultar una tarea por identificador.
+- `tasks.create`: crea una tarea en un proyecto propio.
+- `tasks.update_status` y `tasks.update`: actualizan campos persistentes y vuelven a leer SQLite para verificar el resultado.
+
+Por ejemplo, esta solicitud actualiza la base de datos y registra los eventos `task_updated` y `task_verified` en el Centro de actividad:
+
+```text
+MARTES, marca como completada la tarea “Revisar los tres recursos gratuitos seleccionados” de mi proyecto Estudio Python - Semana 1. Comprueba que el cambio quedó guardado.
+```
+
+La búsqueda normaliza mayúsculas, acentos, espacios y puntuación, pero exige una coincidencia exacta tras normalizar. Si un nombre de proyecto o tarea resulta ambiguo, MARTES pide aclaración y no modifica ninguna tarea. Cuando un plan ejecuta una herramienta de tareas, los eventos quedan asociados al plan y conversación correspondientes.
+
+## Comprension natural 4.0
+
+MARTES separa comprension de ejecucion:
+
+1. Conserva el mensaje original.
+2. Recupera historial reciente y memoria pertinente limitada.
+3. Produce una intencion validada con Pydantic: tipo, objetivo, entidades, herramientas candidatas, datos faltantes, riesgo y resultado esperado.
+4. Decide si responder, ejecutar una herramienta, crear/reanudar un plan o pedir una aclaracion.
+5. Ejecuta solo herramientas registradas en `ToolRegistry` y verifica resultados antes de confirmar.
+
+El resolver local cubre operaciones frecuentes y de bajo coste sin llamar a Groq, por ejemplo:
+
+```text
+Hazme un directorio para el proyecto web.
+Prepárame un espacio donde guardar el material de la web.
+Échale un vistazo a esa carpeta.
+Crea una carpeta en el escritorio llamada prueba final y dentro un archivo txt que diga Hola Joel.
+```
+
+El registro de herramientas incluye metadatos semanticos: proposito, ejemplos naturales, parametros requeridos/opcionales, errores posibles, riesgo y verificacion. El contexto enviado al modelo se genera desde ese registro real; si una capacidad no esta configurada, no se presenta como operativa.
+
+Endpoints de diagnostico:
+
+- `POST /api/intent/diagnose`: devuelve la interpretacion estructurada de un mensaje.
+- `GET /api/intent/diagnostics`: ultimas interpretaciones registradas para el usuario.
+
+Estos endpoints estan pensados para depurar fallos de comprension. No sustituyen las verificaciones del backend ni autorizan acciones por si solos.
+
+## Tool calling híbrido 4.1
+
+La ruta recomendada de decision es:
+
+1. `IntentResolver` identifica intención, entidades, riesgo y herramientas candidatas.
+2. Acciones simples y deterministas siguen usando rutas locales rápidas, por ejemplo crear carpetas o archivos.
+3. `MartesCore` y `PlanExecutor` conservan la coordinación de proyectos y planes persistentes.
+4. Si queda una solicitud operativa que necesita selección del modelo y el proveedor soporta herramientas, `ToolCallingEngine` ejecuta el ciclo nativo.
+5. Toda llamada del modelo vuelve a pasar por `ToolRegistry.run`, permisos del backend y verificación básica del resultado.
+
+Las herramientas nativas se generan desde el registro real con nombres seguros para la API, por ejemplo `weather.current` se expone al modelo como `weather_current` y se mapea de vuelta en el backend. El modelo nunca puede inventar una herramienta ni autorizar una acción sensible por sí mismo.
+
+La integración se puede desactivar temporalmente con:
+
+```env
+MARTES_NATIVE_TOOL_CALLING_ENABLED=false
+```
+
+Límites actuales:
+
+- El streaming de texto sigue usando la ruta textual cuando no hay tool calling; las herramientas nativas se ejecutan como ciclo no streaming y luego se emiten eventos visuales.
+- Las pruebas normales usan proveedores simulados para no consumir cuota de Groq.
+- No se ejecutan acciones destructivas; las herramientas `CONSEQUENCE` o superiores siguen pidiendo autorización concreta.
 
 ## Documentos locales
 
@@ -212,11 +298,16 @@ node --check app\ui\app.js
 
 Las pruebas usan simulaciones y no consumen cuotas reales de Groq ni Tavily.
 
+La suite incluye regresiones de comprension natural para sinonimos, typos, solicitudes combinadas, acciones sensibles y ejecucion local de archivos sin depender del proveedor remoto.
+Tambien incluye pruebas simuladas del ciclo nativo de herramientas y del payload OpenAI-compatible enviado a Groq.
+
 ## Arquitectura
 
 - `app/auth.py`: usuarios, Argon2id, sesiones, CSRF y bootstrap.
 - `app/main.py`: API FastAPI, autenticacion, conversaciones, memoria, streaming y configuracion.
 - `app/core/identity.py`: identidad central de MARTES.
+- `app/core/intent.py`: modelos Pydantic y resolver de intenciones.
+- `app/core/tool_calling.py`: ciclo nativo de tool calling con ejecucion local segura.
 - `app/core/martes_core.py`: coordinador operativo inicial de planes, proyectos y actividad.
 - `app/core/orchestrator.py`: prompt, memoria, tono e investigacion.
 - `app/ai`: proveedores Groq, Ollama, llama.cpp y remoto autorizado.

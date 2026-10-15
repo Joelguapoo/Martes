@@ -41,5 +41,22 @@ class LocalModelProvider(ABC):
     async def complete(self, messages: list[ChatMessage], timeout: float | None = None) -> str:
         raise NotImplementedError
 
+    @property
+    def supports_native_tools(self) -> bool:
+        return False
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        tool_choice: str = "auto",
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        raise ProviderError(
+            "El proveedor activo no soporta llamadas nativas a herramientas.",
+            code="tool_calling_not_supported",
+        )
+
     async def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
         yield await self.complete(messages)

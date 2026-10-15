@@ -78,6 +78,14 @@ def register_reminder_tools(registry: ToolRegistry, agent: ReminderAgent) -> Non
             RiskLevel.LOCAL_REVERSIBLE,
             agent.create,
             input_schema={"message": "texto", "remind_at": "fecha ISO", "timezone": "zona"},
+            required_params=["message", "remind_at"],
+            optional_params=["timezone"],
+            purpose="Guardar un recordatorio local con fecha y hora.",
+            appropriate_when=["El usuario pide que se le recuerde o avise algo."],
+            natural_examples=["Recuérdame mañana a las ocho llamar", "Avísame hoy revisar esto"],
+            possible_errors=["Fecha ISO invalida", "Falta mensaje", "Falta usuario"],
+            verification="Confirmar id del recordatorio creado en SQLite.",
+            semantic_tags=["recordatorio", "agenda", "avisar"],
             **common,
         )
     )
@@ -88,6 +96,11 @@ def register_reminder_tools(registry: ToolRegistry, agent: ReminderAgent) -> Non
             RiskLevel.QUERY,
             agent.list,
             input_schema={},
+            purpose="Consultar recordatorios persistentes del usuario.",
+            appropriate_when=["El usuario pregunta por sus recordatorios."],
+            natural_examples=["Qué recordatorios tengo", "Muéstrame mis avisos"],
+            verification="Devolver lista de recordatorios del usuario autenticado.",
+            semantic_tags=["recordatorio", "listar"],
             **common,
         )
     )
@@ -98,6 +111,11 @@ def register_reminder_tools(registry: ToolRegistry, agent: ReminderAgent) -> Non
             RiskLevel.QUERY,
             agent.upcoming,
             input_schema={},
+            purpose="Consultar proximos recordatorios pendientes.",
+            appropriate_when=["El usuario pregunta qué viene pronto o qué tiene pendiente."],
+            natural_examples=["Qué tengo pendiente", "Próximos recordatorios"],
+            verification="Devolver lista de recordatorios próximos.",
+            semantic_tags=["recordatorio", "pendiente"],
             **common,
         )
     )
@@ -108,6 +126,13 @@ def register_reminder_tools(registry: ToolRegistry, agent: ReminderAgent) -> Non
             RiskLevel.LOCAL_REVERSIBLE,
             agent.cancel,
             input_schema={"id": "id del recordatorio"},
+            required_params=["id"],
+            purpose="Cancelar un recordatorio existente del usuario.",
+            appropriate_when=["El usuario pide cancelar o quitar un recordatorio."],
+            natural_examples=["Cancela ese recordatorio", "Quita el aviso de mañana"],
+            possible_errors=["Falta id", "No existe o no pertenece al usuario"],
+            verification="Confirmar estado cancelled.",
+            semantic_tags=["recordatorio", "cancelar"],
             **common,
         )
     )
@@ -118,6 +143,13 @@ def register_reminder_tools(registry: ToolRegistry, agent: ReminderAgent) -> Non
             RiskLevel.LOCAL_REVERSIBLE,
             agent.done,
             input_schema={"id": "id del recordatorio"},
+            required_params=["id"],
+            purpose="Marcar un recordatorio como atendido.",
+            appropriate_when=["El usuario indica que ya terminó o atendió un aviso."],
+            natural_examples=["Ya hice eso", "Marca el recordatorio como listo"],
+            possible_errors=["Falta id", "No existe o no pertenece al usuario"],
+            verification="Confirmar estado done.",
+            semantic_tags=["recordatorio", "completar"],
             **common,
         )
     )
